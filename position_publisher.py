@@ -47,6 +47,8 @@ class pos_pub:
 		#Initialize flags
 		self.obstacleAvoidFlag = False
 
+		positions = [[0,0,3],[0,1,3],[-1,1,3],[-2,1,3],[-2,2,3],[-2,3,3],[-1,3,3],[0,3,3],[1,3,3]]
+
 		# Rate init
 		self.rate = rospy.Rate(20.0)  # MUST be more then 20Hz
 
@@ -54,16 +56,29 @@ class pos_pub:
 		rospy.Subscriber("/quad_explore/target_position", Pose, self.posCb)
 		
 		#Code to shift the origin from the center to the bottom left
-		obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
+		#obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
 		err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
-		err,self.cuboidObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Cuboid',vrep.simx_opmode_blocking)
 
 		while not rospy.is_shutdown() and vrep.simxGetConnectionId(self.clientID) != -1:
+			
 			#Getting object position with respect to first joint
 			err,obj_pos = vrep.simxGetObjectPosition(self.clientID,self.quadObjectHandle,-1,vrep.simx_opmode_blocking)
 
+			current_time = time.time()
+			elapsed_time =  current_time-init_time
+			print elapsed_time
 			#Setting the position of the quadcopter
-			self.quad_pos = [0,0,3]
+			ind = int(elapsed_time/3)
+			#Looping the movement
+			if ind > 2*len(positions)-1:
+				print 'finished one'
+				init_time = time.time()
+			elif ind > len(positions)-1:
+				ind_rev = len(positions)-1-ind
+				self.quad_pos = positions[ind_rev]
+			else:
+				self.quad_pos = positions[ind]
+			
 			# print 'moving quad'
 			quad_functions.move_quad(self.quad_pos)
 
