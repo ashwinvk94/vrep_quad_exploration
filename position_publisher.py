@@ -56,7 +56,8 @@ class pos_pub:
 		rospy.Subscriber("/quad_explore/target_position", Pose, self.posCb)
 		
 		#Code to shift the origin from the center to the bottom left
-		#obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
+		obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
+		self.cellDecomposition(obstOccMat)
 		err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
 
 		while not rospy.is_shutdown() and vrep.simxGetConnectionId(self.clientID) != -1:
@@ -66,7 +67,6 @@ class pos_pub:
 
 			current_time = time.time()
 			elapsed_time =  current_time-init_time
-			print elapsed_time
 			#Setting the position of the quadcopter
 			ind = int(elapsed_time/3)
 			#Looping the movement
@@ -132,9 +132,71 @@ class pos_pub:
 				for rectInfo in rectsInfo:
 					if x>=rectInfo[0]/resolution and y<=rectInfo[1]/resolution and y>=(rectInfo[1]-rectInfo[3])/resolution and x<=(rectInfo[0]+rectInfo[2])/resolution:
 						obstacleMap[y,x] = 1
-		cv2.imshow('obstaclemap',obstacleMap)
+		# cv2.imshow('obstaclemap',obstacleMap)
+		# cv2.waitKey(0)
+		# cv2.destroyAllWindows()
+
+		return obstacleMap
+
+
+
+	def cellDecomposition(self, obstOccMat):
+
+		obstOccMat = obstOccMat.astype(np.uint8)*255
+
+		cv2.imshow('obstaclemap',obstOccMat)
 		cv2.waitKey(0)
-		cv2.destroyAllWindows()
+
+		map_copy = np.zeros_like(obstOccMat, dtype=np.uint8)
+
+		# get edges
+		edges = cv2.Canny(obstOccMat, 100, 255)	
+
+		# get contours - same as canny output
+		_,cnts,_ = cv2.findContours(obstOccMat.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+		cv2.drawContours(map_copy, cnts, -1, 255, 1)
+
+		dst = cv2.cornerHarris(np.float32(map_copy), 3, 3, 0.04)	
+
+		## Finding sub-pixel resolution corner points
+		_, dst = cv2.threshold(dst,0.01*dst.max(),255,0)
+		dst = np.uint8(dst)
+
+		_, _, _, centroids = cv2.connectedComponentsWithStats(dst, 8, cv2.CV_32S)
+
+		## define the criteria to refine the corners
+		criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
+		corners = cv2.cornerSubPix(map_copy, np.float32(centroids), (6,6), (-1,-1), criteria)
+		corners = np.round(corners)
+		print(corners)
+
+		count = 0
+		for corner in corners:
+			if count == 0:
+				count += 1
+				continue
+
+			y_upside = int(corner[1])
+
+			while y_upside >=0:
+				y_upside -= 1
+				if obstOccMat[y_upside, int(corner[0])] == 255:
+					break
+			cv2.line(obstOccMat, (int(corner[0]), int(corner[1])), (int(corner[0]), y_upside), 255, 1)
+
+			y_bottom = int(corner[1])
+
+			while y_bottom < obstOccMat.shape[0]-1:
+				y_bottom += 1
+				if obstOccMat[y_bottom, int(corner[0])] == 255:
+					break
+			cv2.line(obstOccMat, (int(corner[0]), int(corner[1])), (int(corner[0]), y_bottom), 255, 1)
+
+		cv2.imshow('obstaclemap',obstOccMat)
+		cv2.waitKey(0)
+		quit()
+
+
 def main(args):
     rospy.init_node('pos_pub', anonymous=True)
     ic = pos_pub()
