@@ -57,7 +57,7 @@ class pos_pub:
 		
 		#Code to shift the origin from the center to the bottom left
 		obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
-		self.cellDecomposition(obstOccMat)
+		# self.cellDecomposition(obstOccMat)
 		err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
 
 		while not rospy.is_shutdown() and vrep.simxGetConnectionId(self.clientID) != -1:
@@ -140,7 +140,7 @@ class pos_pub:
 
 
 
-	def cellDecomposition(self, obstOccMat):
+	# def cellDecomposition(self, obstOccMat):
 
 		obstOccMat = obstOccMat.astype(np.uint8)*255
 
