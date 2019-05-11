@@ -121,16 +121,16 @@ class pos_pub:
 		obstacleMap = np.zeros((int(self.yMapLen/resolution), int(self.xMapLen/resolution)))
 
 		rectsInfo = []
-		
+		radius = 1
 		for objectName in objectsList:
 			err,objectHandle = vrep.simxGetObjectHandle(clientID,objectName,vrep.simx_opmode_blocking)
 			err,obj_pos = vrep.simxGetObjectPosition(clientID,objectHandle,originHandle,vrep.simx_opmode_blocking)
 			err,maxX = vrep.simxGetObjectFloatParameter(clientID,objectHandle,18,vrep.simx_opmode_blocking)
 			err,maxY = vrep.simxGetObjectFloatParameter(clientID,objectHandle,19,vrep.simx_opmode_blocking)
-			lengthX = maxX*2
-			lengthY = maxY*2
-			topX = obj_pos[0]-maxX
-			topY = obj_pos[1]+maxY
+			lengthX = maxX*2+2*radius
+			lengthY = maxY*2+2*radius
+			topX = obj_pos[0]-maxX-radius
+			topY = obj_pos[1]+maxY+radius
 			# Rectangles Format[left top corner x,left top corner y,x length,y length]
 			rectsInfo.append([topX,topY,lengthX,lengthY])
 		for x in range(int(self.xMapLen/resolution)):
@@ -139,9 +139,9 @@ class pos_pub:
 				for rectInfo in rectsInfo:
 					if x>=rectInfo[0]/resolution and y<=rectInfo[1]/resolution and y>=(rectInfo[1]-rectInfo[3])/resolution and x<=(rectInfo[0]+rectInfo[2])/resolution:
 						obstacleMap[y,x] = 1
-		# cv2.imshow('obstaclemap',obstacleMap)
-		# cv2.waitKey(0)
-		# cv2.destroyAllWindows()
+		cv2.imshow('obstaclemap',obstacleMap)
+		cv2.waitKey(0)
+		cv2.destroyAllWindows()
 
 		return obstacleMap
 
