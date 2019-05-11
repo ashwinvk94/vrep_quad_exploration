@@ -24,8 +24,11 @@ import numpy as np
 import time
 import cv2
 import math
+import time
+
 class pos_pub:
 	def __init__(self):
+
 		print 'started'
 		# Init vrep client
 		vrep.simxFinish(-1)
@@ -33,12 +36,13 @@ class pos_pub:
 		resolution = 0.01
 		self.clientID = vrep.simxStart('127.0.0.1', 19997, True, True, 5000, 5)
 		
+		moveDelay = 1
 		if self.clientID != -1:
 			#The quad helper contains function implementations for various quadcopter functions
-			quad_functions = quad_helper.quad_helper(self.clientID)
+			self.quad_functions = quad_helper.quad_helper(self.clientID)
 			print('Main Script Started')
-			quad_functions.init_sensors()
-			quad_functions.start_sim()
+			self.quad_functions.init_sensors()
+			self.quad_functions.start_sim()
 			#Setting initial time
 			init_time = time.time()
 			d1=0
@@ -64,6 +68,7 @@ class pos_pub:
 		endPos = [3,5]
 		endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
 		astarDist, path = self.astar(startPos,endPos, obstOccMat)
+		moveQuad(path,moveDelay)
 		# quit()
 
 
@@ -89,11 +94,11 @@ class pos_pub:
 				self.quad_pos = positions[ind]
 			
 			# print 'moving quad'
-			quad_functions.move_quad(self.quad_pos)
+			self.quad_functions.move_quad(self.quad_pos)
 
-			vrep.simxSynchronousTrigger(self.clientID);
+			vrep.simxSynchronousTrigger(self.clientID)
 			self.rate.sleep()
-		quad_functions.stop_sim()
+		self.quad_functions.stop_sim()
 	
 	'''
 	Target Positon  callback
@@ -101,6 +106,13 @@ class pos_pub:
 	def posCb(self,data):
 		position = data.pose.position
 		self.quad_pos = [position.x,position.y,position.z]
+
+	def moveQuad(self,path,delay):
+		for pos in path:
+			quad_functions.move_quad(pos)
+			start_time = time.time()
+			while time.time() - start_time<delay:
+				vrep.simxSynchronousTrigger(self.clientID)
 
 	'''
 	Creates the obstacle space and occupancy matrix
