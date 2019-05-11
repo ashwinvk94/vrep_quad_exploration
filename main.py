@@ -34,7 +34,7 @@ class pos_pub:
 		# Init vrep client
 		vrep.simxFinish(-1)
 		objectsList = ['Wall1','Wall2','Wall3','Wall4','Wall5','Wall6', 'Right_Wall', 'Bottom_Wall', 'Top_Wall', 'Left_Wall']
-		resolution = 0.01
+		resolution = 0.05
 		self.clientID = vrep.simxStart('127.0.0.1', 19997, True, True, 5000, 5)
 		
 		moveDelay = 1
@@ -42,7 +42,7 @@ class pos_pub:
 			#The quad helper contains function implementations for various quadcopter functions
 			self.quad_functions = quad_helper.quad_helper(self.clientID)
 			print('Main Script Started')
-			self.quad_functions.init_sensors()
+			# self.quad_functions.init_sensors()
 			self.quad_functions.start_sim()
 			#Setting initial time
 			init_time = time.time()
@@ -66,47 +66,49 @@ class pos_pub:
 		
 		startPos = [1,1]
 		startPos = [int(startPos[1]/resolution),int(startPos[0]/resolution)]
-		endPos = [3,5]
-		endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
-		astarDist, path = self.astar(startPos,endPos, obstOccMat)
-		moveQuad(path,moveDelay)
+		# endPos = [3,5]
+		# endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
+		# astarDist, path = self.astar(startPos,endPos, obstOccMat)
+
 		# endPos = [3,5]
 		for cell in corners_cell_wise:
 			# go through each cell and then through each corner in each cell
 			for corner in cell:
-				print corner
 				endPos = [int(corner[1]), int(corner[0])]
 				astarDist, path = self.astar(startPos, endPos, obstOccMat)
+				path = np.array(path)
+				path = np.hstack((path, 100*np.ones((path.shape[0], 1), dtype = np.uint8)))
+				self.simPath(path.tolist(), moveDelay,resolution)
 				quit()
 
 
-		err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
+		# err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
 
-		while not rospy.is_shutdown() and vrep.simxGetConnectionId(self.clientID) != -1:
+		# while not rospy.is_shutdown() and vrep.simxGetConnectionId(self.clientID) != -1:
 			
-			#Getting object position with respect to first joint
-			err,obj_pos = vrep.simxGetObjectPosition(self.clientID,self.quadObjectHandle,-1,vrep.simx_opmode_blocking)
+		# 	#Getting object position with respect to first joint
+		# 	err,obj_pos = vrep.simxGetObjectPosition(self.clientID,self.quadObjectHandle,-1,vrep.simx_opmode_blocking)
 
-			current_time = time.time()
-			elapsed_time =  current_time-init_time
-			#Setting the position of the quadcopter
-			ind = int(elapsed_time/3)
-			#Looping the movement
-			if ind > 2*len(positions)-1:
-				print 'finished one'
-				init_time = time.time()
-			elif ind > len(positions)-1:
-				ind_rev = len(positions)-1-ind
-				self.quad_pos = positions[ind_rev]
-			else:
-				self.quad_pos = positions[ind]
+		# 	current_time = time.time()
+		# 	elapsed_time =  current_time-init_time
+		# 	#Setting the position of the quadcopter
+		# 	ind = int(elapsed_time/3)
+		# 	#Looping the movement
+		# 	if ind > 2*len(positions)-1:
+		# 		print 'finished one'
+		# 		init_time = time.time()
+		# 	elif ind > len(positions)-1:
+		# 		ind_rev = len(positions)-1-ind
+		# 		self.quad_pos = positions[ind_rev]
+		# 	else:
+		# 		self.quad_pos = positions[ind]
 			
-			# print 'moving quad'
-			self.quad_functions.move_quad(self.quad_pos)
+		# 	# print 'moving quad'
+		# 	self.quad_functions.move_quad(self.quad_pos)
 
-			vrep.simxSynchronousTrigger(self.clientID)
-			self.rate.sleep()
-		self.quad_functions.stop_sim()
+		# 	vrep.simxSynchronousTrigger(self.clientID)
+		# 	self.rate.sleep()
+		# self.quad_functions.stop_sim()
 	
 	'''
 	Target Positon  callback
@@ -115,9 +117,11 @@ class pos_pub:
 		position = data.pose.position
 		self.quad_pos = [position.x,position.y,position.z]
 
-	def moveQuad(self,path,delay):
+	def simPath(self,path,delay,resolution):
 		for pos in path:
-			quad_functions.move_quad(pos)
+			posCorner = [(pos[0]-self.halfTopWallLen)*resolution,(pos[1]-self.halfLeftWallLen)*resolution,pos[2]*resolution]
+			print posCorner
+			self.quad_functions.move_quad(posCorner)
 			start_time = time.time()
 			while time.time() - start_time<delay:
 				vrep.simxSynchronousTrigger(self.clientID)
@@ -135,11 +139,11 @@ class pos_pub:
 
 		#Getting map size from the top wall and left wall length
 		err,topWallHandle = vrep.simxGetObjectHandle(clientID,'Top_Wall',vrep.simx_opmode_blocking)
-		err,halfTopWallLen = vrep.simxGetObjectFloatParameter(clientID,topWallHandle,18,vrep.simx_opmode_blocking)
-		self.xMapLen = halfTopWallLen*2
+		err,self.halfTopWallLen = vrep.simxGetObjectFloatParameter(clientID,topWallHandle,18,vrep.simx_opmode_blocking)
+		self.xMapLen = self.halfTopWallLen*2
 		err,leftWallHandle = vrep.simxGetObjectHandle(clientID,'Left_Wall',vrep.simx_opmode_blocking)
-		err,halfLeftWallLen = vrep.simxGetObjectFloatParameter(clientID,leftWallHandle,19,vrep.simx_opmode_blocking)
-		self.yMapLen = halfLeftWallLen*2
+		err,self.halfLeftWallLen = vrep.simxGetObjectFloatParameter(clientID,leftWallHandle,19,vrep.simx_opmode_blocking)
+		self.yMapLen = self.halfLeftWallLen*2
 		obstacleMap = np.zeros((int(self.yMapLen/resolution), int(self.xMapLen/resolution)))
 
 		rectsInfo = []
