@@ -11,8 +11,6 @@ Midhun Bharadwaj
 Graduate Students in Robotics,
 University of Maryland, College Park
 
-Note: The axis is defined as the x axis down and y axis up with the origin at the bottom left corner
-
 '''
 
 import sys
@@ -138,7 +136,22 @@ class pos_pub:
 
 		return obstacleMap
 
+	def showImage(self, image):
+		cv2.namedWindow("Display frame",cv2.WINDOW_NORMAL)
+		cv2.imshow("Display frame",image)
+		cv2.waitKey(0)
 
+
+	def drawCorners(self, corners, image):
+
+		if  len(corners.shape) == 1:
+			cv2.circle(image, (int(corners[0]), int(corners[1])), 1, 255, -1)
+			return image
+
+		for corner in corners:
+			cv2.circle(image, (int(corner[0]), int(corner[1])), 4, 255, -1)
+
+		return image
 
 	def cellDecomposition(self, obstOccMat):
 
@@ -150,7 +163,7 @@ class pos_pub:
 		map_copy = np.zeros_like(obstOccMat, dtype=np.uint8)
 
 		# get edges
-		edges = cv2.Canny(obstOccMat, 100, 255)	
+		# edges = cv2.Canny(obstOccMat, 100, 255)	
 
 		# get contours - same as canny output
 		_,cnts,_ = cv2.findContours(obstOccMat.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -169,6 +182,10 @@ class pos_pub:
 		corners = cv2.cornerSubPix(map_copy, np.float32(centroids), (6,6), (-1,-1), criteria)
 		corners = np.round(corners)
 		# print(corners)
+		before_corner_image = np.zeros_like(obstOccMat, dtype=np.uint8)
+		before_corner_image = self.drawCorners(corners, before_corner_image)
+
+		# self.showImage(np.hstack((obstOccMat, before_corner_image)))
 
 		count = 0
 		for corner in corners:
@@ -192,9 +209,58 @@ class pos_pub:
 					break
 			cv2.line(obstOccMat, (int(corner[0]), int(corner[1])), (int(corner[0]), y_bottom), 255, 1)
 
-		# cv2.imshow('obstaclemap',obstOccMat)
-		# cv2.waitKey(0)
+		# also draw lines along the boundary as boundary is also an obstacle
+		cv2.line(obstOccMat, (0, obstOccMat.shape[0]-1), (0,0), 255, 1)
+		cv2.line(obstOccMat, (obstOccMat.shape[1]-1, 0), (0,0), 255, 1)
+		cv2.line(obstOccMat, (obstOccMat.shape[1]-1, 0), (obstOccMat.shape[1]-1, obstOccMat.shape[0]-1), 255, 1)
+		cv2.line(obstOccMat, (0, obstOccMat.shape[0]-1), (obstOccMat.shape[1]-1, obstOccMat.shape[0]-1), 255, 1)
 
+		# getting cells
+		cells = np.zeros_like(obstOccMat, dtype=np.uint8)
+
+		_,cnts,_ = cv2.findContours(obstOccMat.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+		# cv2.drawContours(cells, cnts, -1, 255, 1)
+
+		# show cells
+		for cnt in cnts:
+			x,y,w,h = cv2.boundingRect(cnt)
+			cv2.rectangle(cells, (x+1,y+1), (x+w-1,y+h-1), 255, 1)
+			# self.showImage(cells)
+
+		# find corners of each contour/cell
+		cell_corners = []
+		count = 0
+		cell_corners_image = np.zeros_like(obstOccMat, dtype=np.uint8)
+		temp_image = np.zeros_like(obstOccMat, dtype=np.uint8)
+		for cnt in cnts:
+			# skip first cell which is the map's boundary
+			if count == 0:
+				count += 1
+				continue
+			view_image = np.zeros_like(obstOccMat, dtype=np.uint8)
+			x,y,w,h = cv2.boundingRect(cnt)
+			cv2.rectangle(temp_image, (x+1,y+1), (x+w-1,y+h-1), 255, 1)
+			cv2.rectangle(view_image, (x+1,y+1), (x+w-1,y+h-1), 255, 1)
+			dst = cv2.cornerHarris(np.float32(view_image), 3, 3, 0.04)	
+
+			## Finding sub-pixel resolution corner points
+			_, dst = cv2.threshold(dst,0.01*dst.max(),255,0)
+			dst = np.uint8(dst)
+ 
+			_, _, _, centroids = cv2.connectedComponentsWithStats(dst, 8, cv2.CV_32S)
+
+			## define the criteria to refine the corners
+			criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
+			new_corners = cv2.cornerSubPix(view_image, np.float32(centroids), (3,3), (-1,-1), criteria)
+			new_corners = np.round(new_corners)
+			cell_corners.append(new_corners[1:])
+			cell_corners_image = self.drawCorners(new_corners, cell_corners_image)
+			# self.showImage(np.hstack((cell_corners_image, temp_image)))
+
+		print len(cell_corners)
+		print np.array(cell_corners)
+		self.showImage(obstOccMat)
+		quit()
 
 
 def main(args):
