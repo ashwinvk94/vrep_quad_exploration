@@ -23,15 +23,16 @@ from geometry_msgs.msg import Pose
 import numpy as np
 import time
 import cv2
-
+import math
 class pos_pub:
 	def __init__(self):
 		print 'started'
 		# Init vrep client
 		vrep.simxFinish(-1)
 		objectsList = ['Wall1','Wall2','Wall3','Wall4','Wall5','Wall6']
-		resolution = 0.01
+		resolution = 0.05
 		self.clientID = vrep.simxStart('127.0.0.1', 19997, True, True, 5000, 5)
+		
 		if self.clientID != -1:
 			#The quad helper contains function implementations for various quadcopter functions
 			quad_functions = quad_helper.quad_helper(self.clientID)
@@ -54,8 +55,16 @@ class pos_pub:
 		rospy.Subscriber("/quad_explore/target_position", Pose, self.posCb)
 		
 		#Code to shift the origin from the center to the bottom left
-		obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
-		self.cellDecomposition(obstOccMat)
+		self.obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
+		
+		# self.cellDecomposition(self.obstOccMat)
+		
+		startPos = [1,1]
+		startPos = [int(startPos[1]/resolution),int(startPos[0]/resolution)]
+		endPos = [3,5]
+		endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
+		astarDist,path = self.astar(startPos,endPos)
+		quit()
 		err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
 
 		while not rospy.is_shutdown() and vrep.simxGetConnectionId(self.clientID) != -1:
@@ -260,9 +269,173 @@ class pos_pub:
 		print len(cell_corners)
 		print np.array(cell_corners)
 		self.showImage(obstOccMat)
+
+	'''
+	Main astar function
+	Initial and final position is in the format x,y
+	'''
+	def astar(self,startPos,endPos):
+		#Astar Init
+		self.priorityQueue = self.astarInit(self.obstOccMat)
+		yMapLen = self.obstOccMat.shape[0]
+		xMapLen = self.obstOccMat.shape[1]
+		self.insert([startPos[1],startPos[0]])
+		yFinal = endPos[0]
+		xFinal = endPos[1]
+		validFlag = self.checkValidInputs([startPos[1],startPos[0]],[yFinal,xFinal],self.obstOccMat,xMapLen,yMapLen)
+		if not validFlag:
+			print 'Inputs are not valid'
+			quit()
+		#Initializing distance array value of init node as 0 and visited arr value of init node value as 1
+		self.nodeComeDistArr[startPos[1],startPos[0]] = 0
+		self.nodeVisitArr[startPos[1],startPos[0]] = 1
+		# print len(self.nodeParentArr)
+		# print len(self.nodeParentArr[0])
+		# print self.obstOccMat.shape
+		# print self.nodeTotalDistArr.shape
+
+		#Set initial node as current node
+		currNode = [startPos[1],startPos[0]]
+		visitedNodes = []
+		while not self.isEmpty():
+			#Making the current node the one that was popped from the queue	
+			currNode = self.pop()
+
+			#Checking whether goal node is reached
+			if currNode==[yFinal,xFinal]:
+				goalFlag=1
+				break
+			yCurr = currNode[0]
+			xCurr = currNode[1]
+
+			newIndices = [[yCurr,xCurr-1],[yCurr,xCurr+1],[yCurr-1,xCurr],[yCurr+1,xCurr]]
+			for newIndex in newIndices:
+				yCheckIndex = newIndex[0]
+				xCheckIndex = newIndex[1]
+				print yCheckIndex,xCheckIndex
+
+				#Skip if the index lies outside the map
+				if xCheckIndex<0 or xCheckIndex>= xMapLen or yCheckIndex<0 or yCheckIndex>= yMapLen:
+					continue
+
+				#Skip if the index is a obstacle
+				print self.obstOccMat[yCheckIndex,xCheckIndex]
+				if self.obstOccMat[yCheckIndex,xCheckIndex]==1:
+					print 'obstacle'
+					continue
+
+				euclDist = self.eucldDist([yCheckIndex,xCheckIndex],[yFinal,xFinal])
+				if self.nodeVisitArr[yCheckIndex,xCheckIndex]==0:
+					visitedNodes.append([yCheckIndex,xCheckIndex])
+					#If the node is not visited, then mark it as visited and add to the priority queue
+					self.nodeVisitArr[yCheckIndex,xCheckIndex]=1
+					self.insert([yCheckIndex,xCheckIndex])
+					self.nodeParentArr[yCheckIndex][xCheckIndex] = [yCurr,xCurr]
+					weight = 1
+					self.nodeComeDistArr[yCheckIndex,xCheckIndex] = self.nodeComeDistArr[yCurr,xCurr] + weight
+					self.nodeGoDistArr[yCheckIndex,xCheckIndex] = euclDist
+					self.nodeTotalDistArr[yCheckIndex,xCheckIndex] = self.nodeComeDistArr[yCheckIndex,xCheckIndex] + self.nodeGoDistArr[yCheckIndex,xCheckIndex]
+				else:
+					weight = 1
+					if self.nodeComeDistArr[yCheckIndex,xCheckIndex] > self.nodeComeDistArr[yCurr,xCurr] + weight:
+						self.nodeComeDistArr[yCheckIndex,xCheckIndex] = self.nodeComeDistArr[yCurr,xCurr] + weight
+						self.nodeGoDistArr[yCheckIndex,xCheckIndex] = euclDist
+						self.nodeTotalDistArr[yCheckIndex,xCheckIndex] = self.nodeComeDistArr[yCheckIndex,xCheckIndex] + self.nodeGoDistArr[yCheckIndex,xCheckIndex]
+						self.nodeParentArr[yCheckIndex][xCheckIndex] = [yCurr,xCurr]
+		optimalRoute = self.backtrack(self.nodeParentArr,[startPos[1],startPos[0]],[yFinal,xFinal])
+		optimalRoute.reverse()
+		for pathPoint in optimalRoute:
+			self.obstOccMat[pathPoint[0],pathPoint[1]] = 255
+		cv2.imshow('viewMap',self.obstOccMat)
+		cv2.waitKey(0)
+		cv2.destroyAllWindows()
+		print optimalRoute
+
 		quit()
 
+	'''
+	Initialized astar variables
+	'''
+	def astarInit(self,obstacleMap):
+		yMapLen = obstacleMap.shape[0]
+		xMapLen = obstacleMap.shape[1]
+		self.queue = []
+		self.nodeComeDistArr = np.full((yMapLen, xMapLen), np.inf)
+		self.nodeGoDistArr = np.full((yMapLen, xMapLen), np.inf)
+		self.nodeTotalDistArr = np.full((yMapLen, xMapLen), np.inf)
+		self.nodeVisitArr = np.zeros((yMapLen,xMapLen))
+		self.nodeParentArr = [[[None,None] for j in range(xMapLen)] for i in range(yMapLen)]
 
+	def eucldDist(self,node,goalNode):
+		x1 = node[0]
+		y1 = node[1]
+		x2 = goalNode[0]
+		y2 = goalNode[1]
+
+		return math.sqrt((x1-x2)**2+(y1-y2)**2)
+	'''
+	Astar functions
+	'''
+	# for checking if the queue is empty 
+	def isEmpty(self): 
+		return len(self.queue) == 0  
+  
+	# for inserting an element in the queue 
+	def insert(self, data): 
+		self.queue.append(data) 
+  
+	# for popping an element based on Priority 
+	def pop(self):
+		'''
+		Start search setting the first element as the supposed 
+		minimum value and then compared with all the other elements whether it
+		id actually the largest, if not then updated the new value as the 
+		largest
+		'''
+		minind = 0
+		minY = self.queue[0][0] 
+		minX = self.queue[0][1]
+		# print len(self.queue)
+		for i in range(len(self.queue)):
+			y = self.queue[i][0]
+			x = self.queue[i][1]
+			if self.nodeTotalDistArr[y,x] < self.nodeTotalDistArr[minY,minX]: 
+				minind = i
+				minX = x 
+				minY = y
+				# print 'new min'
+				# print minX
+				# print minY
+		item = self.queue[minind]
+		del self.queue[minind]
+		# print 'length'
+		# print len(self.queue)
+		return item
+
+	def backtrack(self,ParentArr,startNode,goalNode):
+		backTrackList = []
+		currNode = goalNode
+		while currNode!=startNode:
+			print currNode
+			backTrackList.append(currNode)
+			currNode = self.nodeParentArr[currNode[0]][currNode[1]]
+		backTrackList.append(startNode)
+		return backTrackList
+	def checkValidInputs(self,initPos,finalPos,obstacleMap,xMapLen,yMapLen):
+		if initPos[0]<0 or initPos[1]<0 or initPos[1]>xMapLen or initPos[0]>yMapLen:
+			print 'Initial position index is out of bounds'
+			return False
+		elif finalPos[0]<0 or finalPos[1]<0 or finalPos[1]>xMapLen or finalPos[0]>yMapLen:
+			print 'Final position index out of bounds'
+			return False
+		elif obstacleMap[initPos[0],initPos[1]]==1:
+			print 'Initial position is inside an obstacle'
+			return False
+		elif obstacleMap[finalPos[0],finalPos[1]]==1:
+			print 'Final position is inside an obstacle'
+			return False
+		else:
+			return True
 def main(args):
     rospy.init_node('pos_pub', anonymous=True)
     ic = pos_pub()
