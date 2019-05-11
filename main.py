@@ -37,7 +37,7 @@ class pos_pub:
 		resolution = 0.05
 		self.clientID = vrep.simxStart('127.0.0.1', 19997, True, True, 5000, 5)
 		
-		moveDelay = 3
+		moveDelay = 0.1
 		if self.clientID != -1:
 			#The quad helper contains function implementations for various quadcopter functions
 			self.quad_functions = quad_helper.quad_helper(self.clientID)
@@ -58,40 +58,43 @@ class pos_pub:
 		err,leftWallHandle = vrep.simxGetObjectHandle(self.clientID,'Left_Wall',vrep.simx_opmode_blocking)
 		err,self.halfLeftWallLen = vrep.simxGetObjectFloatParameter(self.clientID,leftWallHandle,19,vrep.simx_opmode_blocking)
 
-		path = [[5.7,5.2,2],[5.7,6.2,2],[4.7,6.2,2]]
+		positions = [[0,0,3],[0,1,3],[-1,1,3],[-2,1,3],[-2,2,3],[-2,3,3],[-1,3,3],[0,3,3],[1,3,3]]
 
-		self.simPath(path, moveDelay,resolution)
-
-		# positions = [[0,0,3],[0,1,3],[-1,1,3],[-2,1,3],[-2,2,3],[-2,3,3],[-1,3,3],[0,3,3],[1,3,3]]
-
-		# # Rate init
+		# Rate init
 		# self.rate = rospy.Rate(20.0)  # MUST be more then 20Hz
 
-		# #Initializing publishers
+		#Initializing publishers
 		# rospy.Subscriber("/quad_explore/target_position", Pose, self.posCb)
 		
-		# #Code to shift the origin from the center to the bottom left
-		# obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
+		#Code to shift the origin from the center to the bottom left
+		obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
 		
-		# corners_cell_wise = self.cellDecomposition(obstOccMat)
+		corners_cell_wise = self.cellDecomposition(obstOccMat)
 		
-		# startPos = [1,1]
-		# startPos = [int(startPos[1]/resolution),int(startPos[0]/resolution)]
-		# # endPos = [3,5]
-		# # endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
-		# # astarDist, path = self.astar(startPos,endPos, obstOccMat)
+		startPos = [1,1]
+		err,quadHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
+		err = vrep.simxSetObjectPosition(self.clientID,quadHandle,-1, [startPos[0]-self.halfTopWallLen, startPos[1]-self.halfLeftWallLen, 1.0], vrep.simx_opmode_blocking)
+		
+		for _ in range(200):
+			vrep.simxSynchronousTrigger(self.clientID)
 
-		# # endPos = [3,5]
-		# for cell in corners_cell_wise:
-		# 	# go through each cell and then through each corner in each cell
-		# 	for corner in cell:
-		# 		endPos = [int(corner[1]), int(corner[0])]
-		# 		astarDist, path = self.astar(startPos, endPos, obstOccMat)
-		# 		path = np.array(path)
-		# 		path = np.hstack((path, 100*np.ones((path.shape[0], 1), dtype = np.uint8)))
-		# 		self.simPath(path.tolist(), moveDelay,resolution)
-		# 		quit()
+		startPos = [int(startPos[1]/resolution),int(startPos[0]/resolution)]
+		# endPos = [3,5]
+		# endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
+		# astarDist, path = self.astar(startPos,endPos, obstOccMat)
 
+		# endPos = [3,5]
+		for cell in corners_cell_wise:
+			# go through each cell and then through each corner in each cell
+			for corner in cell:
+				endPos = [int(corner[1]), int(corner[0])]
+				astarDist, path = self.astar(startPos, endPos, obstOccMat)
+				path = np.array(path)
+				path = np.hstack((path, 100*np.ones((path.shape[0], 1), dtype = np.uint8)))
+				path = (path*resolution).tolist()
+				# print((path*resolution).tolist())
+				self.simPath(path, moveDelay,resolution)
+				quit()
 
 		# err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
 
@@ -130,7 +133,7 @@ class pos_pub:
 
 	def simPath(self,path,delay,resolution):
 		for pos in path:
-			posCorner = [(pos[0]-self.halfTopWallLen),(pos[1]-self.halfLeftWallLen),pos[2]]
+			posCorner = [(pos[1]-self.halfTopWallLen), (pos[0]-self.halfLeftWallLen), pos[2]/5.0]
 			# posCorner = pos
 			print posCorner
 			self.quad_functions.move_quad(posCorner)
@@ -159,7 +162,7 @@ class pos_pub:
 		obstacleMap = np.zeros((int(self.yMapLen/resolution), int(self.xMapLen/resolution)))
 
 		rectsInfo = []
-		radius = 0.
+		radius = 0.5
 		for objectName in objectsList:
 			err,objectHandle = vrep.simxGetObjectHandle(clientID,objectName,vrep.simx_opmode_blocking)
 			err,obj_pos = vrep.simxGetObjectPosition(clientID,objectHandle,originHandle,vrep.simx_opmode_blocking)
@@ -358,7 +361,7 @@ class pos_pub:
 				#Skip if the index is a obstacle
 				# print obstOccMat[yCheckIndex,xCheckIndex]
 				if obstOccMat[yCheckIndex, xCheckIndex]==1:
-					print 'obstacle'
+					# print 'obstacle'
 					continue
 
 				euclDist = self.eucldDist([yCheckIndex,xCheckIndex],[yFinal,xFinal])
@@ -382,7 +385,7 @@ class pos_pub:
 		optimalRoute = self.backtrack(self.nodeParentArr,[startPos[1],startPos[0]],[yFinal,xFinal])
 		optimalRoute.reverse()
 		for pathPoint in optimalRoute:
-			obstOccMat[pathPoint[0],pathPoint[1]] = 255
+			obstOccMat[pathPoint[0],pathPoint[1]] = 120
 		# self.showImage(obstOccMat)
 		# print optimalRoute
 		return len(optimalRoute), optimalRoute
@@ -450,7 +453,6 @@ class pos_pub:
 		backTrackList = []
 		currNode = goalNode
 		while currNode!=startNode:
-			print currNode
 			backTrackList.append(currNode)
 			currNode = self.nodeParentArr[currNode[0]][currNode[1]]
 		backTrackList.append(startNode)
@@ -471,13 +473,13 @@ class pos_pub:
 		else:
 			return True
 def main(args):
-    rospy.init_node('pos_pub', anonymous=True)
+    # rospy.init_node('pos_pub', anonymous=True)
     ic = pos_pub()
 
-    try:
-        rospy.spin()
-    except rospy.ROSInterruptException:
-        pass
+    # try:
+    #     rospy.spin()
+    # except rospy.ROSInterruptException:
+    #     quit()
 
 if __name__ == '__main__':
     main(sys.argv)
