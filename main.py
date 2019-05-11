@@ -29,8 +29,8 @@ class pos_pub:
 		print 'started'
 		# Init vrep client
 		vrep.simxFinish(-1)
-		objectsList = ['Wall1','Wall2','Wall3','Wall4','Wall5','Wall6']
-		resolution = 0.05
+		objectsList = ['Wall1','Wall2','Wall3','Wall4','Wall5','Wall6', 'Right_Wall', 'Bottom_Wall', 'Top_Wall', 'Left_Wall']
+		resolution = 0.01
 		self.clientID = vrep.simxStart('127.0.0.1', 19997, True, True, 5000, 5)
 		
 		if self.clientID != -1:
@@ -55,16 +55,18 @@ class pos_pub:
 		rospy.Subscriber("/quad_explore/target_position", Pose, self.posCb)
 		
 		#Code to shift the origin from the center to the bottom left
-		self.obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
+		obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
 		
-		# self.cellDecomposition(self.obstOccMat)
+		corners = self.cellDecomposition(obstOccMat)
 		
 		startPos = [1,1]
 		startPos = [int(startPos[1]/resolution),int(startPos[0]/resolution)]
 		endPos = [3,5]
 		endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
-		astarDist,path = self.astar(startPos,endPos)
-		quit()
+		astarDist, path = self.astar(startPos,endPos, obstOccMat)
+		# quit()
+
+
 		err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
 
 		while not rospy.is_shutdown() and vrep.simxGetConnectionId(self.clientID) != -1:
@@ -121,7 +123,7 @@ class pos_pub:
 		obstacleMap = np.zeros((int(self.yMapLen/resolution), int(self.xMapLen/resolution)))
 
 		rectsInfo = []
-		radius = 1
+		radius = 0.
 		for objectName in objectsList:
 			err,objectHandle = vrep.simxGetObjectHandle(clientID,objectName,vrep.simx_opmode_blocking)
 			err,obj_pos = vrep.simxGetObjectPosition(clientID,objectHandle,originHandle,vrep.simx_opmode_blocking)
@@ -139,9 +141,9 @@ class pos_pub:
 				for rectInfo in rectsInfo:
 					if x>=rectInfo[0]/resolution and y<=rectInfo[1]/resolution and y>=(rectInfo[1]-rectInfo[3])/resolution and x<=(rectInfo[0]+rectInfo[2])/resolution:
 						obstacleMap[y,x] = 1
-		cv2.imshow('obstaclemap',obstacleMap)
-		cv2.waitKey(0)
-		cv2.destroyAllWindows()
+		# cv2.imshow('obstaclemap',obstacleMap)
+		# cv2.waitKey(0)
+		# cv2.destroyAllWindows()
 
 		return obstacleMap
 
@@ -162,12 +164,11 @@ class pos_pub:
 
 		return image
 
-	def cellDecomposition(self, obstOccMat):
+	def cellDecomposition(self, obstacleMap):
+
+		obstOccMat = obstacleMap.copy()
 
 		obstOccMat = obstOccMat.astype(np.uint8)*255
-
-		# cv2.imshow('obstaclemap',obstOccMat)
-		# cv2.waitKey(0)
 
 		map_copy = np.zeros_like(obstOccMat, dtype=np.uint8)
 
@@ -219,10 +220,10 @@ class pos_pub:
 			cv2.line(obstOccMat, (int(corner[0]), int(corner[1])), (int(corner[0]), y_bottom), 255, 1)
 
 		# also draw lines along the boundary as boundary is also an obstacle
-		cv2.line(obstOccMat, (0, obstOccMat.shape[0]-1), (0,0), 255, 1)
-		cv2.line(obstOccMat, (obstOccMat.shape[1]-1, 0), (0,0), 255, 1)
-		cv2.line(obstOccMat, (obstOccMat.shape[1]-1, 0), (obstOccMat.shape[1]-1, obstOccMat.shape[0]-1), 255, 1)
-		cv2.line(obstOccMat, (0, obstOccMat.shape[0]-1), (obstOccMat.shape[1]-1, obstOccMat.shape[0]-1), 255, 1)
+		# cv2.line(obstOccMat, (0, obstOccMat.shape[0]-1), (0,0), 255, 1)
+		# cv2.line(obstOccMat, (obstOccMat.shape[1]-1, 0), (0,0), 255, 1)
+		# cv2.line(obstOccMat, (obstOccMat.shape[1]-1, 0), (obstOccMat.shape[1]-1, obstOccMat.shape[0]-1), 255, 1)
+		# cv2.line(obstOccMat, (0, obstOccMat.shape[0]-1), (obstOccMat.shape[1]-1, obstOccMat.shape[0]-1), 255, 1)
 
 		# getting cells
 		cells = np.zeros_like(obstOccMat, dtype=np.uint8)
@@ -266,23 +267,29 @@ class pos_pub:
 			cell_corners_image = self.drawCorners(new_corners, cell_corners_image)
 			# self.showImage(np.hstack((cell_corners_image, temp_image)))
 
-		print len(cell_corners)
-		print np.array(cell_corners)
-		self.showImage(obstOccMat)
+		# print len(cell_corners)
+		# print np.array(cell_corners)
+		# self.showImage(obstOccMat)
+		# cv2.destroyAllWindows()
+		return new_corners
+
+
 
 	'''
 	Main astar function
 	Initial and final position is in the format x,y
 	'''
-	def astar(self,startPos,endPos):
+	def astar(self,startPos,endPos, obstacleMap):
+
+		obstOccMat = obstacleMap.copy()
 		#Astar Init
-		self.priorityQueue = self.astarInit(self.obstOccMat)
-		yMapLen = self.obstOccMat.shape[0]
-		xMapLen = self.obstOccMat.shape[1]
+		self.priorityQueue = self.astarInit(obstOccMat)
+		yMapLen = obstOccMat.shape[0]
+		xMapLen = obstOccMat.shape[1]
 		self.insert([startPos[1],startPos[0]])
 		yFinal = endPos[0]
 		xFinal = endPos[1]
-		validFlag = self.checkValidInputs([startPos[1],startPos[0]],[yFinal,xFinal],self.obstOccMat,xMapLen,yMapLen)
+		validFlag = self.checkValidInputs([startPos[1],startPos[0]],[yFinal,xFinal],obstOccMat,xMapLen,yMapLen)
 		if not validFlag:
 			print 'Inputs are not valid'
 			quit()
@@ -291,7 +298,7 @@ class pos_pub:
 		self.nodeVisitArr[startPos[1],startPos[0]] = 1
 		# print len(self.nodeParentArr)
 		# print len(self.nodeParentArr[0])
-		# print self.obstOccMat.shape
+		# print obstOccMat.shape
 		# print self.nodeTotalDistArr.shape
 
 		#Set initial node as current node
@@ -312,15 +319,15 @@ class pos_pub:
 			for newIndex in newIndices:
 				yCheckIndex = newIndex[0]
 				xCheckIndex = newIndex[1]
-				print yCheckIndex,xCheckIndex
+				# print yCheckIndex,xCheckIndex
 
 				#Skip if the index lies outside the map
 				if xCheckIndex<0 or xCheckIndex>= xMapLen or yCheckIndex<0 or yCheckIndex>= yMapLen:
 					continue
 
 				#Skip if the index is a obstacle
-				print self.obstOccMat[yCheckIndex,xCheckIndex]
-				if self.obstOccMat[yCheckIndex,xCheckIndex]==1:
+				# print obstOccMat[yCheckIndex,xCheckIndex]
+				if obstOccMat[yCheckIndex,xCheckIndex]==1:
 					print 'obstacle'
 					continue
 
@@ -345,10 +352,8 @@ class pos_pub:
 		optimalRoute = self.backtrack(self.nodeParentArr,[startPos[1],startPos[0]],[yFinal,xFinal])
 		optimalRoute.reverse()
 		for pathPoint in optimalRoute:
-			self.obstOccMat[pathPoint[0],pathPoint[1]] = 255
-		cv2.imshow('viewMap',self.obstOccMat)
-		cv2.waitKey(0)
-		cv2.destroyAllWindows()
+			obstOccMat[pathPoint[0],pathPoint[1]] = 255
+		self.showImage(obstOccMat)
 		print optimalRoute
 
 		quit()
