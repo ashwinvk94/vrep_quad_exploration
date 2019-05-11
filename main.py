@@ -37,7 +37,7 @@ class pos_pub:
 		resolution = 0.05
 		self.clientID = vrep.simxStart('127.0.0.1', 19997, True, True, 5000, 5)
 		
-		moveDelay = 1
+		moveDelay = 3
 		if self.clientID != -1:
 			#The quad helper contains function implementations for various quadcopter functions
 			self.quad_functions = quad_helper.quad_helper(self.clientID)
@@ -50,36 +50,47 @@ class pos_pub:
 
 		#Initialize flags
 		self.obstacleAvoidFlag = False
+		print 'finsihed'
 
-		positions = [[0,0,3],[0,1,3],[-1,1,3],[-2,1,3],[-2,2,3],[-2,3,3],[-1,3,3],[0,3,3],[1,3,3]]
+		#Getting map size from the top wall and left wall length
+		err,topWallHandle = vrep.simxGetObjectHandle(self.clientID,'Top_Wall',vrep.simx_opmode_blocking)
+		err,self.halfTopWallLen = vrep.simxGetObjectFloatParameter(self.clientID,topWallHandle,18,vrep.simx_opmode_blocking)
+		err,leftWallHandle = vrep.simxGetObjectHandle(self.clientID,'Left_Wall',vrep.simx_opmode_blocking)
+		err,self.halfLeftWallLen = vrep.simxGetObjectFloatParameter(self.clientID,leftWallHandle,19,vrep.simx_opmode_blocking)
 
-		# Rate init
-		self.rate = rospy.Rate(20.0)  # MUST be more then 20Hz
+		path = [[5.7,5.2,2],[5.7,6.2,2],[4.7,6.2,2]]
 
-		#Initializing publishers
-		rospy.Subscriber("/quad_explore/target_position", Pose, self.posCb)
+		self.simPath(path, moveDelay,resolution)
+
+		# positions = [[0,0,3],[0,1,3],[-1,1,3],[-2,1,3],[-2,2,3],[-2,3,3],[-1,3,3],[0,3,3],[1,3,3]]
+
+		# # Rate init
+		# self.rate = rospy.Rate(20.0)  # MUST be more then 20Hz
+
+		# #Initializing publishers
+		# rospy.Subscriber("/quad_explore/target_position", Pose, self.posCb)
 		
-		#Code to shift the origin from the center to the bottom left
-		obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
+		# #Code to shift the origin from the center to the bottom left
+		# obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
 		
-		corners_cell_wise = self.cellDecomposition(obstOccMat)
+		# corners_cell_wise = self.cellDecomposition(obstOccMat)
 		
-		startPos = [1,1]
-		startPos = [int(startPos[1]/resolution),int(startPos[0]/resolution)]
-		# endPos = [3,5]
-		# endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
-		# astarDist, path = self.astar(startPos,endPos, obstOccMat)
+		# startPos = [1,1]
+		# startPos = [int(startPos[1]/resolution),int(startPos[0]/resolution)]
+		# # endPos = [3,5]
+		# # endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
+		# # astarDist, path = self.astar(startPos,endPos, obstOccMat)
 
-		# endPos = [3,5]
-		for cell in corners_cell_wise:
-			# go through each cell and then through each corner in each cell
-			for corner in cell:
-				endPos = [int(corner[1]), int(corner[0])]
-				astarDist, path = self.astar(startPos, endPos, obstOccMat)
-				path = np.array(path)
-				path = np.hstack((path, 100*np.ones((path.shape[0], 1), dtype = np.uint8)))
-				self.simPath(path.tolist(), moveDelay,resolution)
-				quit()
+		# # endPos = [3,5]
+		# for cell in corners_cell_wise:
+		# 	# go through each cell and then through each corner in each cell
+		# 	for corner in cell:
+		# 		endPos = [int(corner[1]), int(corner[0])]
+		# 		astarDist, path = self.astar(startPos, endPos, obstOccMat)
+		# 		path = np.array(path)
+		# 		path = np.hstack((path, 100*np.ones((path.shape[0], 1), dtype = np.uint8)))
+		# 		self.simPath(path.tolist(), moveDelay,resolution)
+		# 		quit()
 
 
 		# err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
@@ -119,7 +130,8 @@ class pos_pub:
 
 	def simPath(self,path,delay,resolution):
 		for pos in path:
-			posCorner = [(pos[0]-self.halfTopWallLen)*resolution,(pos[1]-self.halfLeftWallLen)*resolution,pos[2]*resolution]
+			posCorner = [(pos[0]-self.halfTopWallLen),(pos[1]-self.halfLeftWallLen),pos[2]]
+			# posCorner = pos
 			print posCorner
 			self.quad_functions.move_quad(posCorner)
 			start_time = time.time()
