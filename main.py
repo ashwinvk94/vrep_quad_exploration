@@ -26,6 +26,7 @@ import cv2
 import math
 import time
 
+
 class pos_pub:
 	def __init__(self):
 
@@ -61,7 +62,7 @@ class pos_pub:
 		#Code to shift the origin from the center to the bottom left
 		obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
 		
-		corners = self.cellDecomposition(obstOccMat)
+		corners_cell_wise = self.cellDecomposition(obstOccMat)
 		
 		startPos = [1,1]
 		startPos = [int(startPos[1]/resolution),int(startPos[0]/resolution)]
@@ -69,7 +70,14 @@ class pos_pub:
 		endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
 		astarDist, path = self.astar(startPos,endPos, obstOccMat)
 		moveQuad(path,moveDelay)
-		# quit()
+		# endPos = [3,5]
+		for cell in corners_cell_wise:
+			# go through each cell and then through each corner in each cell
+			for corner in cell:
+				print corner
+				endPos = [int(corner[1]), int(corner[0])]
+				astarDist, path = self.astar(startPos, endPos, obstOccMat)
+				quit()
 
 
 		err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
@@ -231,12 +239,6 @@ class pos_pub:
 					break
 			cv2.line(obstOccMat, (int(corner[0]), int(corner[1])), (int(corner[0]), y_bottom), 255, 1)
 
-		# also draw lines along the boundary as boundary is also an obstacle
-		# cv2.line(obstOccMat, (0, obstOccMat.shape[0]-1), (0,0), 255, 1)
-		# cv2.line(obstOccMat, (obstOccMat.shape[1]-1, 0), (0,0), 255, 1)
-		# cv2.line(obstOccMat, (obstOccMat.shape[1]-1, 0), (obstOccMat.shape[1]-1, obstOccMat.shape[0]-1), 255, 1)
-		# cv2.line(obstOccMat, (0, obstOccMat.shape[0]-1), (obstOccMat.shape[1]-1, obstOccMat.shape[0]-1), 255, 1)
-
 		# getting cells
 		cells = np.zeros_like(obstOccMat, dtype=np.uint8)
 
@@ -283,7 +285,7 @@ class pos_pub:
 		# print np.array(cell_corners)
 		# self.showImage(obstOccMat)
 		# cv2.destroyAllWindows()
-		return new_corners
+		return np.array(cell_corners)
 
 
 
@@ -339,7 +341,7 @@ class pos_pub:
 
 				#Skip if the index is a obstacle
 				# print obstOccMat[yCheckIndex,xCheckIndex]
-				if obstOccMat[yCheckIndex,xCheckIndex]==1:
+				if obstOccMat[yCheckIndex, xCheckIndex]==1:
 					print 'obstacle'
 					continue
 
@@ -365,10 +367,9 @@ class pos_pub:
 		optimalRoute.reverse()
 		for pathPoint in optimalRoute:
 			obstOccMat[pathPoint[0],pathPoint[1]] = 255
-		self.showImage(obstOccMat)
-		print optimalRoute
-
-		quit()
+		# self.showImage(obstOccMat)
+		# print optimalRoute
+		return len(optimalRoute), optimalRoute
 
 	'''
 	Initialized astar variables
