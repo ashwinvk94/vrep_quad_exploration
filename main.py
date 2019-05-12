@@ -25,7 +25,7 @@ import time
 import cv2
 import math
 import time
-
+from matplotlib import pyplot as plt
 
 class pos_pub:
 	def __init__(self):
@@ -34,10 +34,10 @@ class pos_pub:
 		# Init vrep client
 		vrep.simxFinish(-1)
 		objectsList = ['Wall1','Wall2','Wall3','Wall4','Wall5','Wall6', 'Right_Wall', 'Bottom_Wall', 'Top_Wall', 'Left_Wall']
-		resolution = 0.05
+		resolution = 0.02
 		self.clientID = vrep.simxStart('127.0.0.1', 19997, True, True, 5000, 5)
 		
-		moveDelay = 0.1
+		self.moveDelay = 0.1
 		if self.clientID != -1:
 			#The quad helper contains function implementations for various quadcopter functions
 			self.quad_functions = quad_helper.quad_helper(self.clientID)
@@ -72,30 +72,23 @@ class pos_pub:
 		corners_cell_wise = self.cellDecomposition(obstOccMat)
 		
 		startPos = [1,1]
-		err,quadHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
-		err = vrep.simxSetObjectPosition(self.clientID,quadHandle,-1, [startPos[0]-self.halfTopWallLen, startPos[1]-self.halfLeftWallLen, 1.0], vrep.simx_opmode_blocking)
+		err,self.quadHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
+		err = vrep.simxSetObjectPosition(self.clientID,self.quadHandle,-1, [startPos[0]-self.halfTopWallLen, startPos[1]-self.halfLeftWallLen, 1.0], vrep.simx_opmode_blocking)
 		
-		for _ in range(200):
+		for _ in range(50):
 			vrep.simxSynchronousTrigger(self.clientID)
 
-		startPos = [int(startPos[1]/resolution),int(startPos[0]/resolution)]
+		startPos = [int(startPos[1]/resolution), int(startPos[0]/resolution)]
 		# endPos = [3,5]
 		# endPos = [int(endPos[1]/resolution),int(endPos[0]/resolution)]
 		# astarDist, path = self.astar(startPos,endPos, obstOccMat)
 
 		# endPos = [3,5]
-		for cell in corners_cell_wise:
-			# go through each cell and then through each corner in each cell
-			for corner in cell:
-				endPos = [int(corner[1]), int(corner[0])]
-				astarDist, path = self.astar(startPos, endPos, obstOccMat)
-				path = np.array(path)
-				path = np.hstack((path, 100*np.ones((path.shape[0], 1), dtype = np.uint8)))
-				path = (path*resolution).tolist()
-				# print((path*resolution).tolist())
-				self.simPath(path, moveDelay,resolution)
-				quit()
 
+		self.moveToClosestCorner(corners_cell_wise,resolution,obstOccMat,startPos)
+		self.quitGrace()
+
+		
 		# err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
 
 		# while not rospy.is_shutdown() and vrep.simxGetConnectionId(self.clientID) != -1:
@@ -124,6 +117,87 @@ class pos_pub:
 		# 	self.rate.sleep()
 		# self.quad_functions.stop_sim()
 	
+
+	def getNearestCorners(self, corners_cell_wise, current_position, resolution):
+		radius = 500
+		flag = False
+		corner_list = []
+		cell_list = []
+
+		# go through each corner until you find a corner and then return the cell(corners) and the corner
+		while not flag:
+			for cell in corners_cell_wise:	
+				for ind, corner in enumerate(cell):
+					if (((current_position[0]/resolution)-corner[0])**2 + ((current_position[1]/resolution)-corner[1])**2 - radius**2)<= 0:
+						flag = True
+						corner_list.append([corner, ind])
+						cell_list.append(cell)
+			radius += 50
+			if radius >= 1000:
+				break
+
+		# print 'radius', radius
+		return corner_list, cell_list, flag
+
+
+	'''
+	This function moves the quadcopter to the closest corner
+	'''
+	def moveToClosestCorner(self,corners_cell_wise,resolution,obstOccMat,startPos):
+		err, obj_pos = vrep.simxGetObjectPosition(self.clientID, self.quadHandle,-1,vrep.simx_opmode_blocking)
+		err, obj_pos_origin = vrep.simxGetObjectPosition(self.clientID, self.quadHandle,self.originHandle,vrep.simx_opmode_blocking)
+		# go through each corner of every cell and get nearest corners
+		corners, cells, retVal = self.getNearestCorners(corners_cell_wise, obj_pos, resolution)
+
+		if not retVal:
+			print "No corner found to be within reach. Please check your code/map. Thank you!"
+			self.quitGrace()
+
+		dist = []
+		path = []
+
+		for corner in corners:
+
+			if corner[1] == 0:
+				endPos = [int(corner[0][1]+1), int(corner[0][0]+1)]
+			elif corner[1] == 1:
+				endPos = [int(corner[0][1]+1), int(corner[0][0]-1)]
+			elif corner[1] == 2:
+				endPos = [int(corner[0][1]-1), int(corner[0][0]+1)]
+			else:
+				endPos = [int(corner[0][1]-1), int(corner[0][0]-1)]
+			start_pos_origin =  [int(obj_pos_origin[1]/resolution),int(obj_pos_origin[0]/resolution)]
+			print start_pos_origin
+			try:
+				astarDist, astarPath = self.astar(start_pos_origin, endPos, obstOccMat)
+			except:
+				print corner
+				print obstOccMat[start_pos_origin[0], start_pos_origin[1]]
+				print 'ASTAR FAILED'
+				self.quitGrace()
+			dist.append(astarDist)
+			path.append(astarPath)
+
+		ind = np.argmin(dist)
+		next_path = np.array(path[ind])
+		next_cell = np.array(cells[ind])
+		next_corner = np.array(corners[ind])
+		# print next_corner
+		# print next_cell
+		# print next_path
+
+		next_path = np.hstack((next_path, 100*np.ones((next_path.shape[0], 1), dtype = np.uint8)))
+		next_path = (next_path*resolution).tolist()
+		self.simPath(next_path, self.moveDelay,resolution)
+
+	'''
+	Quit Gracefully
+	'''
+	def quitGrace(self):
+		vrep.simxStopSimulation(self.clientID, vrep.simx_opmode_blocking)
+		quit()
+
+
 	'''
 	Target Positon  callback
 	'''
@@ -150,7 +224,7 @@ class pos_pub:
 	def createObstacleOccupancyMat(self,objectsList,clientID,resolution):
 
 		#Getting origin handle
-		err,originHandle = vrep.simxGetObjectHandle(clientID,'Origin',vrep.simx_opmode_blocking)
+		err,self.originHandle = vrep.simxGetObjectHandle(clientID,'Origin',vrep.simx_opmode_blocking)
 
 		#Getting map size from the top wall and left wall length
 		err,topWallHandle = vrep.simxGetObjectHandle(clientID,'Top_Wall',vrep.simx_opmode_blocking)
@@ -165,7 +239,7 @@ class pos_pub:
 		radius = 0.5
 		for objectName in objectsList:
 			err,objectHandle = vrep.simxGetObjectHandle(clientID,objectName,vrep.simx_opmode_blocking)
-			err,obj_pos = vrep.simxGetObjectPosition(clientID,objectHandle,originHandle,vrep.simx_opmode_blocking)
+			err,obj_pos = vrep.simxGetObjectPosition(clientID,objectHandle,self.originHandle,vrep.simx_opmode_blocking)
 			err,maxX = vrep.simxGetObjectFloatParameter(clientID,objectHandle,18,vrep.simx_opmode_blocking)
 			err,maxY = vrep.simxGetObjectFloatParameter(clientID,objectHandle,19,vrep.simx_opmode_blocking)
 			lengthX = maxX*2+2*radius
@@ -296,9 +370,10 @@ class pos_pub:
 			criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
 			new_corners = cv2.cornerSubPix(view_image, np.float32(centroids), (3,3), (-1,-1), criteria)
 			new_corners = np.round(new_corners)
+			# self.reorderCorners(new_corners[1:])
 			cell_corners.append(new_corners[1:])
-			cell_corners_image = self.drawCorners(new_corners, cell_corners_image)
-			# self.showImage(np.hstack((cell_corners_image, temp_image)))
+			# cell_corners_image = self.drawCorners(new_corners, cell_corners_image)
+			# self.showImage(np.hstack((cell_corners_image, obstacleMap)))
 
 		# print len(cell_corners)
 		# print np.array(cell_corners)
@@ -307,13 +382,20 @@ class pos_pub:
 		return np.array(cell_corners)
 
 
+	def reorderCorners(self, corners):
 
-	'''
-	Main astar function
-	Initial and final position is in the format x,y
-	'''
+		print corners[:, 0], corners[:, 1]
+		print np.argmin(corners[:, 0])
+		print np.argmin(corners[:, 1])
+		print np.argmax(corners[:, 0])
+		print np.argmax(corners[:, 0])
+
+	
 	def astar(self,startPos,endPos, obstacleMap):
-
+		'''
+		Main astar function
+		Initial and final position is in the format x,y
+		'''
 		obstOccMat = obstacleMap.copy()
 		#Astar Init
 		self.priorityQueue = self.astarInit(obstOccMat)
@@ -325,7 +407,7 @@ class pos_pub:
 		validFlag = self.checkValidInputs([startPos[1],startPos[0]],[yFinal,xFinal],obstOccMat,xMapLen,yMapLen)
 		if not validFlag:
 			print 'Inputs are not valid'
-			quit()
+			self.quitGrace()
 		#Initializing distance array value of init node as 0 and visited arr value of init node value as 1
 		self.nodeComeDistArr[startPos[1],startPos[0]] = 0
 		self.nodeVisitArr[startPos[1],startPos[0]] = 1
@@ -479,7 +561,7 @@ def main(args):
     # try:
     #     rospy.spin()
     # except rospy.ROSInterruptException:
-    #     quit()
+    #     self.quitGrace()
 
 if __name__ == '__main__':
     main(sys.argv)
