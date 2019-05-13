@@ -42,7 +42,7 @@ class pos_pub:
 		resolution = 0.02
 		
 		# the delay between consecutive movment of the quad
-		self.moveDelay = 0.1
+		self.moveDelay = 0.4
 		
 		# get clientID
 		self.clientID = vrep.simxStart('127.0.0.1', 19997, True, True, 5000, 5)
@@ -159,7 +159,7 @@ class pos_pub:
 
 
 	def getNearestCorners(self, corners_cell_wise, current_position, resolution):
-		radius = 500
+		radius = 200
 		flag = False
 		corner_list = []
 		cell_list = []
@@ -173,7 +173,7 @@ class pos_pub:
 							flag = True
 							corner_list.append([corner, ind])
 							cell_list.append(cell)
-			radius += 50
+			radius += 100
 			if radius >= 1000:
 				break
 
@@ -219,20 +219,25 @@ class pos_pub:
 			dist.append(astarDist)
 			path.append(astarPath)
 
+		# get cell, path, corner according to least A-start distance
 		ind = np.argmin(dist)
-		next_path = np.array(path[ind])
 		next_cell = np.array(cells[ind])
 		next_corner = np.array(corners[ind])
 
+		# getting new path and make path more sparse for faster movement
+		next_path = np.array(path[ind])
+		# ind = ind = [i for i in range(len(old_next_path)) if i%2==0]
+		# next_path = old_next_path[ind, :]
 		next_path = np.hstack((next_path, 100*np.ones((next_path.shape[0], 1), dtype = np.uint8)))
 		next_path = (next_path*resolution).tolist()
-		self.simPath(next_path, self.moveDelay, resolution)
+
+		self.simPath(next_path, self.moveDelay-0.1, resolution)
 
 		# update the cell being occupied
 		complete_list = corners_cell_wise.tolist()
 		update  = next_cell.tolist()
 		ind = complete_list.index(update)
-		self.cellOccupancyFlag[ind] = 1
+		self.cellOccupancyFlag[ind] = 1.0
 
 		return next_cell
 
@@ -607,11 +612,7 @@ class pos_pub:
 
 def main(args):
     # rospy.init_node('pos_pub', anonymous=True)
-    try:
-    	ic = pos_pub()
-    except:
-    	self.quitGrace()
-
+   	ic = pos_pub()
     # try:
     #     rospy.spin()
     # except rospy.ROSInterruptException:
