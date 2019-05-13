@@ -84,7 +84,7 @@ class pos_pub:
 		
 		startPos = [1,1]
 		err,self.quadHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
-		err = vrep.simxSetObjectPosition(self.clientID,self.quadHandle,-1, [startPos[0]-self.halfTopWallLen, startPos[1]-self.halfLeftWallLen, 1.0], vrep.simx_opmode_blocking)
+		err = vrep.simxSetObjectPosition(self.clientID,self.quadHandle, -1, [startPos[0]-self.halfTopWallLen, startPos[1]-self.halfLeftWallLen, 1.0], vrep.simx_opmode_blocking)
 		
 		for _ in range(50):
 			vrep.simxSynchronousTrigger(self.clientID)
@@ -207,8 +207,8 @@ class pos_pub:
 				endPos = [int(corner[0][1]-1), int(corner[0][0]+1)]
 			else:
 				endPos = [int(corner[0][1]-1), int(corner[0][0]-1)]
-			start_pos_origin =  [int(obj_pos_origin[1]/resolution),int(obj_pos_origin[0]/resolution)]
-			print start_pos_origin
+			start_pos_origin =  [int(obj_pos_origin[1]/resolution), int(obj_pos_origin[0]/resolution)]
+			# print start_pos_origin
 			try:
 				astarDist, astarPath = self.astar(start_pos_origin, endPos, obstOccMat)
 			except:
@@ -400,24 +400,25 @@ class pos_pub:
 		self.priorityQueue = self.astarInit(obstOccMat)
 		yMapLen = obstOccMat.shape[0]
 		xMapLen = obstOccMat.shape[1]
-		self.insert([startPos[1],startPos[0]])
+		self.insert([startPos[0],startPos[1]])
 		yFinal = endPos[0]
 		xFinal = endPos[1]
-		validFlag = self.checkValidInputs([startPos[1],startPos[0]],[yFinal,xFinal],obstOccMat,xMapLen,yMapLen)
+		validFlag = self.checkValidInputs([startPos[0],startPos[1]],[yFinal,xFinal],obstOccMat,xMapLen,yMapLen)
 		if not validFlag:
 			print 'Inputs are not valid'
 			self.quitGrace()
 		#Initializing distance array value of init node as 0 and visited arr value of init node value as 1
-		self.nodeComeDistArr[startPos[1],startPos[0]] = 0
-		self.nodeVisitArr[startPos[1],startPos[0]] = 1
+		self.nodeComeDistArr[startPos[0],startPos[1]] = 0
+		self.nodeVisitArr[startPos[0],startPos[1]] = 1
 		# print len(self.nodeParentArr)
 		# print len(self.nodeParentArr[0])
 		# print obstOccMat.shape
 		# print self.nodeTotalDistArr.shape
 
-		#Set initial node as current node
-		currNode = [startPos[1],startPos[0]]
+		#Set initial node as current node - (y,x)
+		currNode = [startPos[0],startPos[1]]
 		visitedNodes = []
+
 		while not self.isEmpty():
 			#Making the current node the one that was popped from the queue	
 			currNode = self.pop()
@@ -463,59 +464,14 @@ class pos_pub:
 						self.nodeGoDistArr[yCheckIndex,xCheckIndex] = euclDist
 						self.nodeTotalDistArr[yCheckIndex,xCheckIndex] = self.nodeComeDistArr[yCheckIndex,xCheckIndex] + self.nodeGoDistArr[yCheckIndex,xCheckIndex]
 						self.nodeParentArr[yCheckIndex][xCheckIndex] = [yCurr,xCurr]
-		optimalRoute = self.backtrack(self.nodeParentArr,[startPos[1],startPos[0]],[yFinal,xFinal])
+		
+		optimalRoute = self.backtrack(self.nodeParentArr,[startPos[0],startPos[1]],[yFinal,xFinal])
 		optimalRoute.reverse()
-		for pathPoint in optimalRoute:
-			obstOccMat[pathPoint[0],pathPoint[1]] = 120
+		# for pathPoint in optimalRoute:
+		# 	obstOccMat[pathPoint[0],pathPoint[1]] = 120
 		# self.showImage(obstOccMat)
 		# print optimalRoute
 		return len(optimalRoute), optimalRoute
-
-	
-	'''
-	Creates the obstacle space and occupancy matrix
-	0's - Empty Cell
-	1's - Obstacle Cell
-	2's - Visited Cell
-	'''
-	def createObstacleOccupancyMat(self,objectsList,clientID,resolution):
-
-		#Getting origin handle
-		err,self.originHandle = vrep.simxGetObjectHandle(clientID,'Origin',vrep.simx_opmode_blocking)
-
-		#Getting map size from the top wall and left wall length
-		err,topWallHandle = vrep.simxGetObjectHandle(clientID,'Top_Wall',vrep.simx_opmode_blocking)
-		err,self.halfTopWallLen = vrep.simxGetObjectFloatParameter(clientID,topWallHandle,18,vrep.simx_opmode_blocking)
-		self.xMapLen = self.halfTopWallLen*2
-		err,leftWallHandle = vrep.simxGetObjectHandle(clientID,'Left_Wall',vrep.simx_opmode_blocking)
-		err,self.halfLeftWallLen = vrep.simxGetObjectFloatParameter(clientID,leftWallHandle,19,vrep.simx_opmode_blocking)
-		self.yMapLen = self.halfLeftWallLen*2
-		obstacleMap = np.zeros((int(self.yMapLen/resolution), int(self.xMapLen/resolution)))
-
-		rectsInfo = []
-		radius = 0.18
-		for objectName in objectsList:
-			err,objectHandle = vrep.simxGetObjectHandle(clientID,objectName,vrep.simx_opmode_blocking)
-			err,obj_pos = vrep.simxGetObjectPosition(clientID,objectHandle,self.originHandle,vrep.simx_opmode_blocking)
-			err,maxX = vrep.simxGetObjectFloatParameter(clientID,objectHandle,18,vrep.simx_opmode_blocking)
-			err,maxY = vrep.simxGetObjectFloatParameter(clientID,objectHandle,19,vrep.simx_opmode_blocking)
-			lengthX = maxX*2+2*radius
-			lengthY = maxY*2+2*radius
-			topX = obj_pos[0]-maxX-radius
-			topY = obj_pos[1]+maxY+radius
-			# Rectangles Format[left top corner x,left top corner y,x length,y length]
-			rectsInfo.append([topX,topY,lengthX,lengthY])
-		for x in range(int(self.xMapLen/resolution)):
-			for y in range(int(self.yMapLen/resolution)):
-				# Recangles
-				for rectInfo in rectsInfo:
-					if x>=rectInfo[0]/resolution and y<=rectInfo[1]/resolution and y>=(rectInfo[1]-rectInfo[3])/resolution and x<=(rectInfo[0]+rectInfo[2])/resolution:
-						obstacleMap[y,x] = 1
-		# cv2.imshow('obstaclemap',obstacleMap)
-		# cv2.waitKey(0)
-		# cv2.destroyAllWindows()
-
-		return obstacleMap
 
 
 	'''
@@ -593,6 +549,7 @@ class pos_pub:
 			print 'Final position index out of bounds'
 			return False
 		elif obstacleMap[initPos[0],initPos[1]]==1:
+			print obstacleMap[initPos[0],initPos[1]]
 			print 'Initial position is inside an obstacle'
 			return False
 		elif obstacleMap[finalPos[0],finalPos[1]]==1:
@@ -602,9 +559,58 @@ class pos_pub:
 			return True
 
 
+	'''
+	Creates the obstacle space and occupancy matrix
+	0's - Empty Cell
+	1's - Obstacle Cell
+	2's - Visited Cell
+	'''
+	def createObstacleOccupancyMat(self,objectsList,clientID,resolution):
+
+		#Getting origin handle
+		err,self.originHandle = vrep.simxGetObjectHandle(clientID,'Origin',vrep.simx_opmode_blocking)
+
+		#Getting map size from the top wall and left wall length
+		err,topWallHandle = vrep.simxGetObjectHandle(clientID,'Top_Wall',vrep.simx_opmode_blocking)
+		err,self.halfTopWallLen = vrep.simxGetObjectFloatParameter(clientID,topWallHandle,18,vrep.simx_opmode_blocking)
+		self.xMapLen = self.halfTopWallLen*2
+		err,leftWallHandle = vrep.simxGetObjectHandle(clientID,'Left_Wall',vrep.simx_opmode_blocking)
+		err,self.halfLeftWallLen = vrep.simxGetObjectFloatParameter(clientID,leftWallHandle,19,vrep.simx_opmode_blocking)
+		self.yMapLen = self.halfLeftWallLen*2
+		obstacleMap = np.zeros((int(self.yMapLen/resolution), int(self.xMapLen/resolution)))
+
+		rectsInfo = []
+		radius = 0.18
+		for objectName in objectsList:
+			err,objectHandle = vrep.simxGetObjectHandle(clientID,objectName,vrep.simx_opmode_blocking)
+			err,obj_pos = vrep.simxGetObjectPosition(clientID,objectHandle,self.originHandle,vrep.simx_opmode_blocking)
+			err,maxX = vrep.simxGetObjectFloatParameter(clientID,objectHandle,18,vrep.simx_opmode_blocking)
+			err,maxY = vrep.simxGetObjectFloatParameter(clientID,objectHandle,19,vrep.simx_opmode_blocking)
+			lengthX = maxX*2+2*radius
+			lengthY = maxY*2+2*radius
+			topX = obj_pos[0]-maxX-radius
+			topY = obj_pos[1]+maxY+radius
+			# Rectangles Format[left top corner x,left top corner y,x length,y length]
+			rectsInfo.append([topX,topY,lengthX,lengthY])
+		for x in range(int(self.xMapLen/resolution)):
+			for y in range(int(self.yMapLen/resolution)):
+				# Recangles
+				for rectInfo in rectsInfo:
+					if x>=rectInfo[0]/resolution and y<=rectInfo[1]/resolution and y>=(rectInfo[1]-rectInfo[3])/resolution and x<=(rectInfo[0]+rectInfo[2])/resolution:
+						obstacleMap[y,x] = 1
+		# cv2.imshow('obstaclemap',obstacleMap)
+		# cv2.waitKey(0)
+		# cv2.destroyAllWindows()
+
+		return obstacleMap
+
+
 def main(args):
     # rospy.init_node('pos_pub', anonymous=True)
-    ic = pos_pub()
+    try:
+    	ic = pos_pub()
+    except:
+    	self.quitGrace()
 
     # try:
     #     rospy.spin()
