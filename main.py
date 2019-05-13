@@ -26,6 +26,8 @@ import cv2
 import math
 import time
 from matplotlib import pyplot as plt
+from InsideCellPlanning import InsideCellPlanning
+np.set_printoptions(threshold=sys.maxsize)
 
 class pos_pub:
 	def __init__(self):
@@ -69,7 +71,10 @@ class pos_pub:
 		#Code to shift the origin from the center to the bottom left
 		obstOccMat = self.createObstacleOccupancyMat(objectsList,self.clientID,resolution)
 		
-		corners_cell_wise = self.cellDecomposition(obstOccMat)
+		corners_cell_wise, image_with_cells = self.cellDecomposition(obstOccMat)
+		nCells = corners_cell_wise.shape[0]
+		self.cellOccupancyFlag = np.zeros(nCells).tolist()
+		print self.cellOccupancyFlag
 		
 		startPos = [1,1]
 		err,self.quadHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
@@ -84,11 +89,26 @@ class pos_pub:
 		# astarDist, path = self.astar(startPos,endPos, obstOccMat)
 
 		# endPos = [3,5]
+		while 0 in self.cellOccupancyFlag:
 
-		self.moveToClosestCorner(corners_cell_wise,resolution,obstOccMat,startPos)
-		self.quitGrace()
+			currCell = self.moveToClosestCorner(corners_cell_wise,resolution,obstOccMat)
+			currCellYX = self.convertCornerstoYX(currCell)
+			
+			err, obj_pos_origin = vrep.simxGetObjectPosition(self.clientID, self.quadHandle,self.originHandle,vrep.simx_opmode_blocking)
+			start_pos_origin =  [int(obj_pos_origin[1]/resolution),int(obj_pos_origin[0]/resolution)]
 
-		
+			cell_image = np.ones_like(obstOccMat, dtype=np.uint8)*255
+			cell_image[int(currCellYX[0, 0]): int(currCellYX[3, 0]), int(currCellYX[0, 1]):int(currCellYX[3, 1])] = 0
+
+			self.showImage(cell_image)
+			path = InsideCellPlanning(start_pos_origin, currCellYX, cell_image, 10, 10)
+			# print path
+			path = np.hstack((path, 100*np.ones((path.shape[0], 1), dtype = np.uint8)))
+			path = (path*resolution).tolist()
+			self.simPath(path, self.moveDelay, resolution)
+			print self.cellOccupancyFlag
+			for _ in range(200):
+				vrep.simxSynchronousTrigger(self.clientID)
 		# err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
 
 		# while not rospy.is_shutdown() and vrep.simxGetConnectionId(self.clientID) != -1:
@@ -117,6 +137,15 @@ class pos_pub:
 		# 	self.rate.sleep()
 		# self.quad_functions.stop_sim()
 	
+	'''
+	This function converts the xy coordinates to yx coordinates
+	'''
+	def convertCornerstoYX(self,xycoordinates):
+		X = xycoordinates[:,0].reshape(4,1)
+		Y = xycoordinates[:,1].reshape(4,1)
+		yxcoordinates = np.hstack((Y,X))
+		return yxcoordinates
+
 
 	def getNearestCorners(self, corners_cell_wise, current_position, resolution):
 		radius = 500
@@ -126,12 +155,13 @@ class pos_pub:
 
 		# go through each corner until you find a corner and then return the cell(corners) and the corner
 		while not flag:
-			for cell in corners_cell_wise:	
-				for ind, corner in enumerate(cell):
-					if (((current_position[0]/resolution)-corner[0])**2 + ((current_position[1]/resolution)-corner[1])**2 - radius**2)<= 0:
-						flag = True
-						corner_list.append([corner, ind])
-						cell_list.append(cell)
+			for indCell, cell in enumerate(corners_cell_wise):
+				if not self.cellOccupancyFlag[indCell]:
+					for ind, corner in enumerate(cell):
+						if (((current_position[0]/resolution)-corner[0])**2 + ((current_position[1]/resolution)-corner[1])**2 - radius**2)<= 0:
+							flag = True
+							corner_list.append([corner, ind])
+							cell_list.append(cell)
 			radius += 50
 			if radius >= 1000:
 				break
@@ -143,7 +173,7 @@ class pos_pub:
 	'''
 	This function moves the quadcopter to the closest corner
 	'''
-	def moveToClosestCorner(self,corners_cell_wise,resolution,obstOccMat,startPos):
+	def moveToClosestCorner(self, corners_cell_wise,resolution,obstOccMat):
 		err, obj_pos = vrep.simxGetObjectPosition(self.clientID, self.quadHandle,-1,vrep.simx_opmode_blocking)
 		err, obj_pos_origin = vrep.simxGetObjectPosition(self.clientID, self.quadHandle,self.originHandle,vrep.simx_opmode_blocking)
 		# go through each corner of every cell and get nearest corners
@@ -188,7 +218,15 @@ class pos_pub:
 
 		next_path = np.hstack((next_path, 100*np.ones((next_path.shape[0], 1), dtype = np.uint8)))
 		next_path = (next_path*resolution).tolist()
-		self.simPath(next_path, self.moveDelay,resolution)
+		self.simPath(next_path, self.moveDelay, resolution)
+
+		# update the cell being occupied
+		complete_list = corners_cell_wise.tolist()
+		update  = next_cell.tolist()
+		ind = complete_list.index(update)
+		self.cellOccupancyFlag[ind] = 1
+
+		return next_cell
 
 	'''
 	Quit Gracefully
@@ -206,10 +244,13 @@ class pos_pub:
 		self.quad_pos = [position.x,position.y,position.z]
 
 	def simPath(self,path,delay,resolution):
+
 		for pos in path:
+			# print 'Movement step in image coordinates', [pos[0]/resolution, pos[1]/resolution]
+			err, obj_pos_origin = vrep.simxGetObjectPosition(self.clientID, self.quadHandle,self.originHandle,vrep.simx_opmode_blocking)
+			# print '-------------------Feedback position', [obj_pos_origin[1]/resolution, obj_pos_origin[0]/resolution]
 			posCorner = [(pos[1]-self.halfTopWallLen), (pos[0]-self.halfLeftWallLen), pos[2]/5.0]
 			# posCorner = pos
-			print posCorner
 			self.quad_functions.move_quad(posCorner)
 			start_time = time.time()
 			while time.time() - start_time<delay:
@@ -236,7 +277,7 @@ class pos_pub:
 		obstacleMap = np.zeros((int(self.yMapLen/resolution), int(self.xMapLen/resolution)))
 
 		rectsInfo = []
-		radius = 0.5
+		radius = 0.18
 		for objectName in objectsList:
 			err,objectHandle = vrep.simxGetObjectHandle(clientID,objectName,vrep.simx_opmode_blocking)
 			err,obj_pos = vrep.simxGetObjectPosition(clientID,objectHandle,self.originHandle,vrep.simx_opmode_blocking)
@@ -356,7 +397,7 @@ class pos_pub:
 				continue
 			view_image = np.zeros_like(obstOccMat, dtype=np.uint8)
 			x,y,w,h = cv2.boundingRect(cnt)
-			cv2.rectangle(temp_image, (x+1,y+1), (x+w-1,y+h-1), 255, 1)
+			cv2.rectangle(obstOccMat, (x+1,y+1), (x+w-1,y+h-1), 255, 1)
 			cv2.rectangle(view_image, (x+1,y+1), (x+w-1,y+h-1), 255, 1)
 			dst = cv2.cornerHarris(np.float32(view_image), 3, 3, 0.04)	
 
@@ -379,7 +420,8 @@ class pos_pub:
 		# print np.array(cell_corners)
 		# self.showImage(obstOccMat)
 		# cv2.destroyAllWindows()
-		return np.array(cell_corners)
+
+		return np.array(cell_corners), obstOccMat
 
 
 	def reorderCorners(self, corners):
