@@ -85,7 +85,7 @@ def InsideCellPlanning(startPos, corners, obstacleMap, xJump, yJump):       # In
 
 def distanceFromCorner(corners, current_position, xJump):
 
-	radius = xJump + 1
+	radius = xJump
 	for corner in corners:
 		if ((current_position[0]-corner[0])**2 + (current_position[1]-corner[1])**2 - radius**2)<= 0:
 			return True

@@ -229,9 +229,9 @@ class pos_pub:
 		next_corner = np.array(corners[ind])
 
 		# getting new path and make path more sparse for faster movement
-		next_path = np.array(path[ind])
-		# ind = ind = [i for i in range(len(old_next_path)) if i%2==0]
-		# next_path = old_next_path[ind, :]
+		old_next_path = np.array(path[ind])
+		index = [i for i in range(len(old_next_path)) if i%5==0]
+		next_path = old_next_path[index, :]
 		next_path = np.hstack((next_path, 100*np.ones((next_path.shape[0], 1), dtype = np.uint8)))
 		next_path = (next_path*resolution).tolist()
 
