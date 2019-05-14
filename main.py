@@ -173,6 +173,10 @@ class pos_pub:
 							flag = True
 							corner_list.append([corner, ind])
 							cell_list.append(cell)
+
+				# if flag:
+				# 	break
+
 			radius += 100
 			if radius >= 1000:
 				break
@@ -184,9 +188,9 @@ class pos_pub:
 	'''
 	This function moves the quadcopter to the closest corner
 	'''
-	def moveToClosestCorner(self, corners_cell_wise,resolution,obstOccMat):
-		err, obj_pos = vrep.simxGetObjectPosition(self.clientID, self.quadHandle,-1,vrep.simx_opmode_blocking)
-		err, obj_pos_origin = vrep.simxGetObjectPosition(self.clientID, self.quadHandle,self.originHandle,vrep.simx_opmode_blocking)
+	def moveToClosestCorner(self, corners_cell_wise, resolution, obstOccMat):
+		err, obj_pos = vrep.simxGetObjectPosition(self.clientID, self.quadHandle,-1, vrep.simx_opmode_blocking)
+		err, obj_pos_origin = vrep.simxGetObjectPosition(self.clientID, self.quadHandle, self.originHandle,vrep.simx_opmode_blocking)
 		# go through each corner of every cell and get nearest corners
 		corners, cells, retVal = self.getNearestCorners(corners_cell_wise, obj_pos, resolution)
 
