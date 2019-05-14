@@ -112,42 +112,38 @@ class pos_pub:
 
 			# generate a path to traverse optimally inside the cell and process it
 			path = InsideCellPlanning(start_pos_origin, currCellYX, cell_image, 10, 10)
-			path = np.hstack((path, 100*np.ones((path.shape[0], 1), dtype = np.uint8)))
-			path = (path*resolution).tolist()
+			# path = np.hstack((path, 0.5*(1/resolution)*np.ones((path.shape[0], 1), dtype = np.uint8)))
+			# path = (path*resolution).tolist()
+			path = self.make3dPath(path,resolution)
 			# move according to the path generated above
 			self.simPath(path, self.moveDelay, resolution)
 			print self.cellOccupancyFlag
 			for _ in range(100):				# wait sometime for the quad to settle in
 				vrep.simxSynchronousTrigger(self.clientID)
 
-		# err,self.quadObjectHandle = vrep.simxGetObjectHandle(self.clientID,'Quadricopter',vrep.simx_opmode_blocking)
-
-		# while not rospy.is_shutdown() and vrep.simxGetConnectionId(self.clientID) != -1:
-			
-		# 	#Getting object position with respect to first joint
-		# 	err,obj_pos = vrep.simxGetObjectPosition(self.clientID,self.quadObjectHandle,-1,vrep.simx_opmode_blocking)
-
-		# 	current_time = time.time()
-		# 	elapsed_time =  current_time-init_time
-		# 	#Setting the position of the quadcopter
-		# 	ind = int(elapsed_time/3)
-		# 	#Looping the movement
-		# 	if ind > 2*len(positions)-1:
-		# 		print 'finished one'
-		# 		init_time = time.time()
-		# 	elif ind > len(positions)-1:
-		# 		ind_rev = len(positions)-1-ind
-		# 		self.quad_pos = positions[ind_rev]
-		# 	else:
-		# 		self.quad_pos = positions[ind]
-			
-		# 	# print 'moving quad'
-		# 	self.quad_functions.move_quad(self.quad_pos)
-
-		# 	vrep.simxSynchronousTrigger(self.clientID)
-		# 	self.rate.sleep()
-		# self.quad_functions.stop_sim()
 	
+	def make3dPath(self,path,resolution):
+		twoDpath = path.copy()
+		twoDpath = twoDpath.tolist()
+		threeDPath = []
+		for twoDpos in twoDpath:
+			threeDPath.append([twoDpos[0]*resolution,twoDpos[1]*resolution,0.5])
+		twoDpath.reverse()
+		for twoDpos in twoDpath:
+			threeDPath.append([twoDpos[0]*resolution,twoDpos[1]*resolution,1.2])
+		twoDpath.reverse()
+		for twoDpos in twoDpath:
+			threeDPath.append([twoDpos[0]*resolution,twoDpos[1]*resolution,2])
+		lastPos = twoDpath[-1]
+
+		threeDPath.append([lastPos[0]*resolution,lastPos[1]*resolution,1.7])
+		threeDPath.append([lastPos[0]*resolution,lastPos[1]*resolution,1.5])
+		threeDPath.append([lastPos[0]*resolution,lastPos[1]*resolution,1.1])
+		threeDPath.append([lastPos[0]*resolution,lastPos[1]*resolution,0.9])
+		threeDPath.append([lastPos[0]*resolution,lastPos[1]*resolution,0.7])
+		threeDPath.append([lastPos[0]*resolution,lastPos[1]*resolution,0.5])
+		return threeDPath
+
 	'''
 	This function converts the xy coordinates to yx coordinates
 	'''
@@ -204,13 +200,13 @@ class pos_pub:
 		for corner in corners:
 
 			if corner[1] == 0:
-				endPos = [int(corner[0][1]+1), int(corner[0][0]+1)]
+				endPos = [int(corner[0][1]+2), int(corner[0][0]+2)]
 			elif corner[1] == 1:
-				endPos = [int(corner[0][1]+1), int(corner[0][0]-1)]
+				endPos = [int(corner[0][1]+2), int(corner[0][0]-2)]
 			elif corner[1] == 2:
-				endPos = [int(corner[0][1]-1), int(corner[0][0]+1)]
+				endPos = [int(corner[0][1]-2), int(corner[0][0]+2)]
 			else:
-				endPos = [int(corner[0][1]-1), int(corner[0][0]-1)]
+				endPos = [int(corner[0][1]-2), int(corner[0][0]-2)]
 			start_pos_origin =  [int(obj_pos_origin[1]/resolution), int(obj_pos_origin[0]/resolution)]
 			# print start_pos_origin
 			try:
@@ -232,7 +228,8 @@ class pos_pub:
 		old_next_path = np.array(path[ind])
 		index = [i for i in range(len(old_next_path)) if i%5==0]
 		next_path = old_next_path[index, :]
-		next_path = np.hstack((next_path, 100*np.ones((next_path.shape[0], 1), dtype = np.uint8)))
+		next_path = np.vstack((next_path, old_next_path[-1,:]))
+		next_path = np.hstack((next_path, 0.5*(1/resolution)*np.ones((next_path.shape[0], 1), dtype = np.uint8)))
 		next_path = (next_path*resolution).tolist()
 
 		self.simPath(next_path, self.moveDelay-0.1, resolution)
@@ -269,7 +266,7 @@ class pos_pub:
 			# print 'Movement step in image coordinates', [pos[0]/resolution, pos[1]/resolution]
 			err, obj_pos_origin = vrep.simxGetObjectPosition(self.clientID, self.quadHandle,self.originHandle,vrep.simx_opmode_blocking)
 			# print '-------------------Feedback position', [obj_pos_origin[1]/resolution, obj_pos_origin[0]/resolution]
-			posCorner = [(pos[1]-self.halfTopWallLen), (pos[0]-self.halfLeftWallLen), pos[2]/5.0]
+			posCorner = [(pos[1]-self.halfTopWallLen), (pos[0]-self.halfLeftWallLen), pos[2]]
 			# posCorner = pos
 			self.quad_functions.move_quad(posCorner)
 			start_time = time.time()
@@ -290,7 +287,7 @@ class pos_pub:
 			return image
 
 		for corner in corners:
-			cv2.circle(image, (int(corner[0]), int(corner[1])), 4, 255, -1)
+			cv2.circle(image, (int(corner[0]), int(corner[1])), 1, 255, -1)
 
 		return image
 
@@ -371,9 +368,9 @@ class pos_pub:
 			if count == 0:
 				count += 1
 				continue
-			view_image = np.zeros_like(obstOccMat, dtype=np.uint8)
 			x,y,w,h = cv2.boundingRect(cnt)
-			cv2.rectangle(obstOccMat, (x+1,y+1), (x+w-1,y+h-1), 255, 1)
+			view_image = np.zeros_like(obstOccMat, dtype=np.uint8)
+			cv2.rectangle(temp_image, (x+1,y+1), (x+w-1,y+h-1), 255, 1)
 			cv2.rectangle(view_image, (x+1,y+1), (x+w-1,y+h-1), 255, 1)
 			dst = cv2.cornerHarris(np.float32(view_image), 3, 3, 0.04)	
 
@@ -388,13 +385,11 @@ class pos_pub:
 			new_corners = cv2.cornerSubPix(view_image, np.float32(centroids), (3,3), (-1,-1), criteria)
 			new_corners = np.round(new_corners)
 			cell_corners.append(new_corners[1:])
-			# cell_corners_image = self.drawCorners(new_corners, cell_corners_image)
-			# self.showImage(np.hstack((cell_corners_image, obstacleMap)))
-
-		# print len(cell_corners)
-		# print np.array(cell_corners)
-		# self.showImage(obstOccMat)
-		# cv2.destroyAllWindows()
+		# 	cell_corners_image = self.drawCorners(new_corners, cell_corners_image)
+		# 	self.showImage(np.hstack((cell_corners_image, obstacleMap)))
+		# self.showImage(np.hstack((temp_image, obstacleMap)))
+		# self.showImage(np.hstack((cell_corners_image, temp_image)))
+		# self.quitGrace()
 
 		return np.array(cell_corners), obstOccMat
 
